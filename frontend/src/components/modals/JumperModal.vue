@@ -234,7 +234,6 @@ onBeforeUnmount(() => {
                         spellcheck="false"
                         :maxlength="jumperLimits.keyPath"
                         :placeholder="$t('app.modals.jumper.keyPathPlaceholder')"
-                        :required="jumperNeedsKeyFile"
                       />
                       <label class="btn btn-outline-secondary mb-0">
                         {{ $t('app.modals.jumper.browse') }}

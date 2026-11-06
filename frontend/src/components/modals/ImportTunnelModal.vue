@@ -130,7 +130,7 @@ function fillImportJumperFormFromParsed(config) {
     host: parsed.host || '',
     port: Number(parsed.port) || 22,
     user: parsed.user || '',
-    authType: parsed.keyPath ? 'ssh_key' : 'ssh_agent',
+    authType: 'ssh_key',
     keyPath: parsed.keyPath || '',
     agentSocketPath: '',
     password: '',
@@ -201,10 +201,8 @@ function validateImportJumperPayload(payload) {
   if (!Number.isInteger(payload.port) || payload.port < 1 || payload.port > 65535) {
     return 'Jumper port must be between 1 and 65535.'
   }
-  if (payload.authType === 'ssh_key' && !payload.keyPath) {
-    return 'SSH Key mode requires key path.'
-  }
-  if (payload.authType === 'password' && !payload.password) {
+    // ssh_key with an empty key path means "auto": try all ~/.ssh private keys.
+    if (payload.authType === 'password' && !payload.password) {
     return 'Password mode requires password.'
   }
   if (payload.keepAliveIntervalMs > 0 && payload.keepAliveIntervalMs < 1000) {
@@ -818,7 +816,6 @@ watch(
                     spellcheck="false"
                     :maxlength="jumperLimits.keyPath"
                     :placeholder="$t('app.modals.jumper.keyPathPlaceholder')"
-                    :required="importJumperNeedsKeyFile"
                   />
                   <label class="btn btn-outline-secondary mb-0">
                     {{ $t('app.modals.jumper.browse') }}
