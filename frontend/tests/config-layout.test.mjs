@@ -14,7 +14,7 @@ test('Config uses the same label/value grid as Sync without row dividers', () =>
   assert.match(styles, /\.config-grid \{[^}]*grid-template-columns: minmax\(0, 1fr\)/)
   assert.doesNotMatch(styles, /border-bottom|config-row/)
   const pairs = [...template.matchAll(/<dt class="text-body-secondary">([\s\S]*?)<\/dt>\s*<dd>([\s\S]*?)<\/dd>/g)]
-  assert.equal(pairs.length, 9)
+  assert.equal(pairs.length, 8)
   for (const [label, description] of [
     ['language', 'languageDesc'],
     ['brandColor', 'brandColorDesc'],
@@ -50,9 +50,9 @@ test('Config shows two accessible accent swatches with selection feedback', () =
   assert.match(styles, /\.config-accent-swatch:focus-visible/)
 })
 
-test('Config retains its controls and keeps data and license details in value column', () => {
+test('Config retains its controls and keeps details in value column', () => {
   for (const fragment of [
-    "onAutoRunChange($event.target.checked, $event.target)",
+    "onAutoRunChange($event.target.checked)",
     "onTrafficMonitorChange($event.target.checked)",
     "$emit('theme-change', $event.target.checked)",
     "$emit('accent-color-change', 'blue')",
@@ -64,15 +64,12 @@ test('Config retains its controls and keeps data and license details in value co
     '@click="onResetConfigDataDir"',
     '<CopyIconButton :value="configLocationInfo.effectiveConfigDir"',
     "@click=\"$emit('check-updates')\"",
-    "@click=\"$emit('refresh-license-status')\"",
-    "@click=\"$emit('upgrade', 'activate')\"",
     "class=\"config-path-row\"",
   ]) {
     assert.ok(template.includes(fragment), `missing expected control: ${fragment}`)
   }
   const pairs = [...template.matchAll(/<dt class="text-body-secondary">([\s\S]*?)<\/dt>\s*<dd>([\s\S]*?)<\/dd>/g)]
   const directoryValue = pairs.find(([, label]) => label.includes("t('config.configDataDir')"))?.[2]
-  const licenseValue = pairs.find(([, label]) => label.includes("t('config.licenseStatus')"))?.[2]
+  assert.ok(directoryValue, 'missing config data directory control')
   assert.match(directoryValue, /config-path-row[\s\S]*config-dir-actions/)
-  assert.match(licenseValue, /license-secret[\s\S]*purchase.haveCode/)
 })

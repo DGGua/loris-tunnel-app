@@ -76,20 +76,3 @@ export async function checkUpdate(params) {
     query: params
   })
 }
-
-export async function getLicenseStatus(machineId) {
-  return request('/license/status', {
-    method: 'GET',
-    query: { machine_id: machineId }
-  })
-}
-
-export async function redeemLicenseCode({ code, machineId }) {
-  return request('/license/redeem', {
-    method: 'POST',
-    body: JSON.stringify({
-      code,
-      machine_id: machineId
-    })
-  })
-}

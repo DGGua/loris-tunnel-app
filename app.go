@@ -23,7 +23,6 @@ import (
 	"loris-tunnel/internal/conf"
 	"loris-tunnel/internal/device"
 	"loris-tunnel/internal/devtunnel"
-	"loris-tunnel/internal/license"
 	"loris-tunnel/internal/model"
 	"loris-tunnel/internal/sshconfig"
 	"loris-tunnel/internal/traytext"
@@ -33,7 +32,6 @@ import (
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-const usageHeartbeatInterval = 2 * time.Hour
 const (
 	aiReportSupportEmail = "admin@lorisdev.cc"
 	maxMailtoSubjectLen  = 180
@@ -60,21 +58,17 @@ type App struct {
 	jumper        *biz.JumperBiz
 	group         *biz.GroupBiz
 	tunnel        *biz.TunnelBiz
-	updater       *updater.Service
-	license       *license.Client
-	licenseActive atomic.Bool
-	aiDebug       *aidebug.Service
-	machineID     string
-	initErr       error
+	updater   *updater.Service
+	aiDebug   *aidebug.Service
+	buildType string
+	machineID string
+	initErr   error
 
 	trayMu   sync.Mutex
 	trayShow *systray.MenuItem
 	trayQuit *systray.MenuItem
 
 	allowClose atomic.Bool
-
-	usageReporterStop chan struct{}
-	usageReporterWG   sync.WaitGroup
 
 	trafficMu       sync.Mutex
 	lastTrafficUp   uint64
@@ -94,7 +88,6 @@ func NewApp() *App {
 	}
 	slog.Info("app initialized", "config", storage.Path())
 
-	licenseClient := license.NewDefaultClient()
 	machineID := device.MachineID()
 	return &App{
 		storage:   storage,
@@ -102,8 +95,7 @@ func NewApp() *App {
 		group:     biz.NewGroupBiz(storage),
 		tunnel:    biz.NewTunnelBiz(storage),
 		updater:   newUpdaterService(),
-		license:   licenseClient,
-		aiDebug:   aidebug.NewService(licenseClient.BaseURL(), machineID),
+		aiDebug:   aidebug.NewService(backendAPIBaseURL("production"), machineID),
 		machineID: machineID,
 	}
 }
@@ -231,9 +223,8 @@ func (a *App) SaveUILocale(locale string) error {
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 	buildType := wailsruntime.Environment(ctx).BuildType
-	a.license = license.NewClientByBuildType(buildType)
-	a.aiDebug = aidebug.NewService(a.license.BaseURL(), a.machineID)
-	slog.Info("license client initialized", "build_type", buildType, "api_base_url", a.license.BaseURL())
+	a.buildType = buildType
+	a.aiDebug = aidebug.NewService(backendAPIBaseURL(buildType), a.machineID)
 	slog.Info("app startup")
 	if err := a.ensureReady(); err == nil {
 		a.syncAutoRunWithConfig()
@@ -242,17 +233,15 @@ func (a *App) startup(ctx context.Context) {
 			a.cloudSync.Start()
 		}
 		go func() {
-			limit := a.tunnelStartLimit()
 			a.configGate.Lock()
 			defer a.configGate.Unlock()
 			if a.allowClose.Load() {
 				return
 			}
-			if err := a.tunnel.StartAutoStart(limit); err != nil {
+			if err := a.tunnel.StartAutoStart(0); err != nil {
 				slog.Error("auto start tunnel failed", "err", err)
 			}
 		}()
-		a.startUsageReporter()
 	}
 }
 
@@ -280,75 +269,10 @@ func (a *App) shutdown(ctx context.Context) {
 	if a.cloudSync != nil {
 		a.cloudSync.Close()
 	}
-	a.stopUsageReporter()
 	if a.tunnel != nil {
 		a.configGate.Lock()
 		a.tunnel.Shutdown()
 		a.configGate.Unlock()
-	}
-}
-
-func (a *App) startUsageReporter() {
-	if a.license == nil || strings.TrimSpace(a.machineID) == "" {
-		slog.Warn("usage reporter skipped: missing client or machine id")
-		return
-	}
-	if a.usageReporterStop != nil {
-		return
-	}
-	a.usageReporterStop = make(chan struct{})
-	a.usageReporterWG.Add(1)
-	go func() {
-		defer a.usageReporterWG.Done()
-
-		a.reportUsageEvent("startup")
-
-		ticker := time.NewTicker(usageHeartbeatInterval)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-ticker.C:
-				a.reportUsageEvent("heartbeat")
-			case <-a.usageReporterStop:
-				return
-			}
-		}
-	}()
-}
-
-func (a *App) stopUsageReporter() {
-	if a.usageReporterStop == nil {
-		return
-	}
-	close(a.usageReporterStop)
-	a.usageReporterStop = nil
-	a.usageReporterWG.Wait()
-}
-
-func (a *App) usageAppVersion() string {
-	if a.license != nil && a.license.Environment() == "dev" {
-		return productVersion + "-dev"
-	}
-	return productVersion
-}
-
-func (a *App) reportUsageEvent(eventType string) {
-	if a.license == nil {
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	_, err := a.license.ReportUsageEvent(ctx, model.UsageEventRequest{
-		MachineID:  a.machineID,
-		EventType:  eventType,
-		AppVersion: a.usageAppVersion(),
-		Platform:   runtime.GOOS,
-		ClientTS:   time.Now().UTC().Format(time.RFC3339),
-	})
-	if err != nil {
-		slog.Warn("report usage event failed", "event_type", eventType, "error", err)
 	}
 }
 
@@ -381,7 +305,7 @@ func (a *App) GetState() (model.State, error) {
 		Groups:          append([]model.TunnelGroup{}, cfg.Groups...),
 		Tunnels:         append([]model.Tunnel{}, cfg.Tunnels...),
 		ActiveSlots:     a.tunnel.RunningCount(),
-		ActiveSlotLimit: a.currentTunnelStartLimit(),
+		ActiveSlotLimit: 0,
 	}, nil
 }
 
@@ -776,7 +700,7 @@ func (a *App) ToggleTunnel(id int) (model.Tunnel, error) {
 	if err := a.ensureReady(); err != nil {
 		return model.Tunnel{}, err
 	}
-	return a.tunnel.Toggle(id, a.tunnelStartLimit)
+	return a.tunnel.Toggle(id, func() int { return 0 })
 }
 
 func (a *App) GetDevTunnelStatus() (devtunnel.Status, error) {
@@ -1003,35 +927,6 @@ func (a *App) CancelCloudflareInstall() {
 	a.tunnel.CancelCloudflareInstall()
 }
 
-func (a *App) currentTunnelStartLimit() int {
-	if a.licenseActive.Load() {
-		return 0
-	}
-	return biz.FreePlanRunningLimit
-}
-
-func (a *App) tunnelStartLimit() int {
-	if a.license == nil {
-		return biz.FreePlanRunningLimit
-	}
-	machineID := strings.TrimSpace(a.machineID)
-	if machineID == "" {
-		machineID = device.MachineID()
-	}
-	if machineID == "" {
-		return biz.FreePlanRunningLimit
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	status, err := a.license.GetStatus(ctx, machineID)
-	if err != nil {
-		slog.Warn("license check for tunnel start limit failed; applying free plan limit", "err", err)
-		return biz.FreePlanRunningLimit
-	}
-	a.licenseActive.Store(status.Active)
-	return a.currentTunnelStartLimit()
-}
-
 func collectJumpersForApp(items []model.Jumper, ids []int) ([]model.Jumper, error) {
 	if len(ids) == 0 {
 		return nil, fmt.Errorf("at least one jumper is required")
@@ -1061,69 +956,6 @@ func (a *App) GetMachineID() (string, error) {
 	return a.machineID, nil
 }
 
-func (a *App) GetStoredLicenseCode() (string, error) {
-	if err := a.ensureReady(); err != nil {
-		return "", err
-	}
-	cfg, err := a.storage.Load()
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(cfg.License.Code), nil
-}
-
-func (a *App) GetLicenseStatus() (model.LicenseStatus, error) {
-	if err := a.ensureReady(); err != nil {
-		return model.LicenseStatus{}, err
-	}
-	if a.license == nil {
-		return model.LicenseStatus{}, fmt.Errorf("license service is not initialized")
-	}
-	machineID, err := a.GetMachineID()
-	if err != nil {
-		return model.LicenseStatus{}, err
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	status, err := a.license.GetStatus(ctx, machineID)
-	if err != nil {
-		return model.LicenseStatus{}, err
-	}
-	a.licenseActive.Store(status.Active)
-	if err := a.saveLicenseCode(status.Code); err != nil {
-		slog.Warn("save license code failed", "error", err)
-	}
-	return status, nil
-}
-
-func (a *App) RedeemLicenseCode(code string) (model.LicenseRedeemResult, error) {
-	if err := a.ensureReady(); err != nil {
-		return model.LicenseRedeemResult{}, err
-	}
-	if a.license == nil {
-		return model.LicenseRedeemResult{}, fmt.Errorf("license service is not initialized")
-	}
-	machineID, err := a.GetMachineID()
-	if err != nil {
-		return model.LicenseRedeemResult{}, err
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	result, err := a.license.Redeem(ctx, machineID, code)
-	if err != nil {
-		return model.LicenseRedeemResult{}, err
-	}
-	a.licenseActive.Store(result.Active)
-	if err := a.saveLicenseCode(result.Code); err != nil {
-		slog.Warn("save license code failed", "error", err)
-	}
-	return result, nil
-}
-
 func (a *App) CheckForUpdates(currentVersion string) (updater.Result, error) {
 	if err := a.ensureReady(); err != nil {
 		return updater.Result{}, err
@@ -1134,20 +966,8 @@ func (a *App) CheckForUpdates(currentVersion string) (updater.Result, error) {
 	return a.updater.Check(context.Background(), currentVersion)
 }
 
-func (a *App) saveLicenseCode(code string) error {
-	if a.storage == nil {
-		return fmt.Errorf("storage is not initialized")
-	}
-	trimmed := strings.TrimSpace(code)
-	_, err := a.storage.Update(func(cfg *conf.Config) error {
-		cfg.License.Code = trimmed
-		return nil
-	})
-	return err
-}
-
 // syncAutoRunWithConfig aligns OS auto-run (launch at login) state with config.
-// Called from startup before frontend runs; frontend will later check Pro and may call SetAutoRunEnabled(false).
+// Called from startup before frontend runs.
 func (a *App) syncAutoRunWithConfig() {
 	cfg, err := a.storage.Load()
 	if err != nil {
@@ -1324,11 +1144,11 @@ func (a *App) ImportConfig(srcPath string) error {
 	})
 	if err != nil {
 		for _, id := range running {
-			_, _ = a.tunnel.Toggle(id, a.tunnelStartLimit)
+			_, _ = a.tunnel.Toggle(id, func() int { return 0 })
 		}
 		return err
 	}
-	_ = a.tunnel.StartAutoStart(a.tunnelStartLimit())
+	_ = a.tunnel.StartAutoStart(0)
 
 	slog.Info("config imported", "src", srcPath)
 	return nil

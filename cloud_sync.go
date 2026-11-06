@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 	"loris-tunnel/internal/cloudsync"
@@ -13,7 +12,7 @@ import (
 )
 
 func (a *App) initializeCloudSync() error {
-	environment := a.license.Environment()
+	environment := backendEnvironment(a.buildType)
 	server := a.cloudSyncServer()
 	directory := filepath.Dir(a.storage.Path())
 	path := filepath.Join(directory, cloudsync.SettingsFileForEnvironment(environment))
@@ -92,7 +91,7 @@ func (a *App) initializeCloudSync() error {
 	return nil
 }
 func (a *App) cloudSyncServer() string {
-	return strings.TrimSuffix(a.license.BaseURL(), "/api/v1")
+	return backendServerBaseURL()
 }
 func (a *App) GenerateCloudSyncToken() (string, error) {
 	if e := a.syncReady(); e != nil {
@@ -206,11 +205,11 @@ func (a *App) applyCloudConfig(data []byte, expected string) error {
 	running := a.tunnel.RunningIDs()
 	a.tunnel.Shutdown()
 	if e = a.storage.RestoreRaw(data, expected); e != nil {
-		_ = a.tunnel.StartPreviouslyRunning(running, a.tunnelStartLimit())
+		_ = a.tunnel.StartPreviouslyRunning(running, 0)
 		return e
 	}
 	// Autostart failures are connection errors, not a failed file restoration.
-	if e = a.tunnel.StartAutoStart(a.tunnelStartLimit()); e != nil {
+	if e = a.tunnel.StartAutoStart(0); e != nil {
 		return &cloudsync.AppliedError{Err: fmt.Errorf("file restored; auto-start failed: %w", e)}
 	}
 	if a.ctx != nil {

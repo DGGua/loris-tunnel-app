@@ -425,57 +425,6 @@
   cursor: pointer;
 }
 
-.sidebar-upgrade-btn {
-  padding: 0.24rem 0.56rem;
-  font-size: 0.74rem;
-  margin-left: auto;
-}
-
-.sidebar-panel.collapsed .sidebar-upgrade-btn {
-  margin-left: 0;
-  padding: 0.28rem 0.5rem;
-}
-
-.sidebar-pro-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  border-radius: 999px;
-  color: var(--lt-accent-ink);
-  background: var(--lt-accent-hover);
-  border: 1px solid var(--lt-accent-border);
-  font-size: 0.9rem;
-}
-
-.sidebar-pro-expiry {
-  font-size: 0.74rem;
-  color: var(--lt-accent-ink);
-  background: var(--lt-accent-hover);
-  border: 1px solid var(--lt-accent-border);
-  border-radius: 999px;
-  padding: 0.14rem 0.44rem;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 136px;
-  flex: 0 1 auto;
-  text-align: left;
-  margin-left: auto;
-}
-
-.pro-expiry-chip {
-  display: inline-flex;
-  align-items: center;
-  font-size: 0.79rem;
-  color: var(--lt-accent-ink);
-  background: var(--lt-accent-hover);
-  border: 1px solid var(--lt-accent-border);
-  border-radius: 999px;
-  padding: 0.2rem 0.52rem;
-}
-
 .content-shell {
   flex: 1;
   min-height: 0;
@@ -1114,29 +1063,6 @@
 
 .toast-config-item .toast-body {
   white-space: pre-line;
-}
-
-.license-code-row {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin-top: 0.75rem;
-  padding-top: 0.75rem;
-  border-top: 1px solid var(--lt-border);
-}
-
-.license-code-label {
-  font-size: 0.78rem;
-  color: var(--lt-muted);
-}
-
-.license-code-value {
-  font-size: 0.78rem;
-  color: var(--lt-ink);
-  background: var(--lt-surface-2);
-  padding: 0.15rem 0.4rem;
-  border-radius: var(--lt-radius-sm);
-  font-family: var(--bs-font-monospace);
 }
 
 .pro-badge {

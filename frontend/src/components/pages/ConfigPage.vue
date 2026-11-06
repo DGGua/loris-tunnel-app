@@ -2,9 +2,7 @@
 import { onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import CardHeader from '../common/CardHeader.vue'
-import SecretField from '../common/SecretField.vue'
 import CopyIconButton from '../common/CopyIconButton.vue'
-import UpgradePrompt from '../common/UpgradePrompt.vue'
 import {
   GetAutoRunEnabled,
   GetTrafficMonitorEnabled,
@@ -36,31 +34,15 @@ const props = defineProps({
     type: Object,
     required: true,
   },
-  isPro: {
-    type: Boolean,
-    required: true,
-  },
   isStoreDistribution: {
     type: Boolean,
     default: false,
-  },
-  proExpiryLabel: {
-    type: String,
-    required: true,
-  },
-  licenseCode: {
-    type: String,
-    default: '',
   },
   configMessage: {
     type: String,
     default: '',
   },
   isCheckingUpdates: {
-    type: Boolean,
-    default: false,
-  },
-  isRefreshingLicenseStatus: {
     type: Boolean,
     default: false,
   },
@@ -75,10 +57,8 @@ const emit = defineEmits([
   'theme-change',
   'accent-color-change',
   'check-updates',
-  'upgrade',
   'open-release-page',
   'close-update-check-dialog',
-  'refresh-license-status',
   'set-config-message',
   'reload-state',
   'confirm-action',
@@ -90,7 +70,6 @@ const autoRunEnabled = ref(false)
 const trafficMonitorEnabled = ref(true)
 const configBusy = ref('')
 const configLocationInfo = ref(null)
-const upgradePromptVisible = ref(false)
 onMounted(async () => {
   try {
     autoRunEnabled.value = await GetAutoRunEnabled()
@@ -225,12 +204,7 @@ async function onResetConfigDataDir() {
   })
 }
 
-async function onAutoRunChange(checked, input) {
-  if (checked && !props.isPro) {
-    input.checked = false
-    upgradePromptVisible.value = true
-    return
-  }
+async function onAutoRunChange(checked) {
   try {
     await SetAutoRunEnabled(!!checked)
     autoRunEnabled.value = !!checked
@@ -385,7 +359,7 @@ function openReleasePage() {
         <CardHeader :title="t('config.system')" icon="bi-sliders" />
         <div class="lt-card-body">
           <dl class="lt-kv config-kv">
-            <dt class="text-body-secondary">{{ t('config.autoRun') }} <span class="lt-pill lt-pill--primary ms-1">PRO</span></dt>
+            <dt class="text-body-secondary">{{ t('config.autoRun') }}</dt>
             <dd>
               <div class="form-check form-switch m-0">
                 <input
@@ -395,7 +369,7 @@ function openReleasePage() {
                   :checked="autoRunEnabled"
                   :aria-label="t('config.autoRun')"
                   aria-describedby="config-auto-run-desc"
-                  @change="onAutoRunChange($event.target.checked, $event.target)"
+                  @change="onAutoRunChange($event.target.checked)"
                 />
               </div>
               <small id="config-auto-run-desc">{{ t('config.autoRunDesc') }}</small>
@@ -505,37 +479,10 @@ function openReleasePage() {
               </div>
               <small v-if="isStoreDistribution">{{ t('config.storeUpdatesManaged') }}</small>
             </dd>
-            <dt class="text-body-secondary">{{ t('config.licenseStatus') }}</dt>
-            <dd>
-              <div class="d-flex align-items-center flex-wrap gap-2">
-                <span v-if="!isPro">{{ t('config.freeVersion') }}</span>
-                <button v-if="!isPro" type="button" class="btn btn-sm btn-outline-primary" @click="$emit('upgrade')">
-                  {{ t('config.upgradePro') }}
-                </button>
-                <button
-                  v-else
-                  type="button"
-                  class="lt-pill lt-pill--primary"
-                  :disabled="isRefreshingLicenseStatus"
-                  :title="t('config.refreshLicenseStatusHint')"
-                  @click="$emit('refresh-license-status')"
-                >
-                  {{ isRefreshingLicenseStatus ? t('config.refreshingLicenseStatus') : `Pro · ${proExpiryLabel}` }}
-                </button>
-              </div>
-              <div v-if="isPro" class="license-secret">
-                <span class="text-body-secondary">{{ t('config.licenseCode') }}</span>
-                <SecretField :value="licenseCode" @error="$emit('set-config-message', $event)" />
-              </div>
-              <div v-if="!isPro" class="mt-2 small text-body-secondary">
-                <button type="button" class="btn btn-link btn-sm p-0 license-code-entry" @click="$emit('upgrade', 'activate')">{{ t('purchase.haveCode') }}</button>
-              </div>
-            </dd>
           </dl>
         </div>
       </div>
     </div>
-    <UpgradePrompt v-if="upgradePromptVisible" :feature="t('config.autoRun')" :description="t('config.autoRunDesc')" @close="upgradePromptVisible = false" @upgrade="upgradePromptVisible = false; $emit('upgrade')" />
   </section>
 
   <div
@@ -601,7 +548,4 @@ function openReleasePage() {
 .config-path-row { display: flex; align-items: center; gap: 6px; max-width: 100%; }
 .config-path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .config-dir-actions { margin-top: 8px; }
-.license-code-entry { font-size: 0.75rem; text-decoration: none; text-align: start; white-space: normal; }
-.license-code-entry:hover { text-decoration: underline; }
-.license-secret { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 </style>

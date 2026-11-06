@@ -42,7 +42,6 @@ function switchPage(page) {
   <div class="app-root" data-screenshot-preview="true">
     <div class="app-shell">
       <AppSidebar :pages="pages" :active-page="activePage" :app-version="config.info.productVersion"
-        :is-pro="true" pro-expiry-label="2027-12-31" :show-upgrade-button="true"
         :traffic-monitor-enabled="activePage === 'overview'"
         :traffic="{ upBps: 47104, downBps: 131072 }" :traffic-history-up="trafficHistoryUp"
         :traffic-history-down="trafficHistoryDown" @switch-page="switchPage" />
@@ -62,7 +61,6 @@ function switchPage(page) {
           <SyncPage v-else-if="activePage === 'sync'" />
           <LogsPage v-else-if="activePage === 'logs'" :selected-log-level="logLevel" :filtered-logs="filteredLogs" @set-log-level="logLevel = $event" />
           <ConfigPage v-else-if="activePage === 'config'" theme="light" accent-color="blue" :app-meta="{ version: config.info.productVersion }"
-            :is-pro="true" pro-expiry-label="2027-12-31" license-code="DEMO-SCREENSHOT-ONLY"
             :update-check-dialog="{ visible: false }" />
         </main>
       </section>

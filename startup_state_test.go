@@ -41,20 +41,13 @@ func TestGetStateDoesNotWaitForConfigGate(t *testing.T) {
 	}
 }
 
-func TestGetStateReportsLicenseSpecificTunnelLimit(t *testing.T) {
+func TestGetStateReportsUnlimitedTunnelLimit(t *testing.T) {
 	a, _ := syncTestApp(t)
-	for _, pro := range []bool{false, true, false} {
-		a.licenseActive.Store(pro)
-		state, err := a.GetState()
-		if err != nil {
-			t.Fatal(err)
-		}
-		expected := 3
-		if pro {
-			expected = 0
-		}
-		if state.ActiveSlotLimit != expected {
-			t.Fatalf("pro=%v: limit=%d, expected=%d", pro, state.ActiveSlotLimit, expected)
-		}
+	state, err := a.GetState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.ActiveSlotLimit != 0 {
+		t.Fatalf("ActiveSlotLimit = %d, expected 0 (unlimited)", state.ActiveSlotLimit)
 	}
 }

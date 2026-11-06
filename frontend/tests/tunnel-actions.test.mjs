@@ -10,15 +10,14 @@ function deferred() {
   const promise = new Promise((yes, no) => { resolve = yes; reject = no })
   return { promise, resolve, reject }
 }
-function setup(items, pro = true) {
+function setup(items) {
   const request = deferred()
   const poll = deferred()
   const calls = []
   const dialogs = []
   const context = vm.createContext({
     tunnelActionRevision: 0, pendingTunnelActions: reactive(new Map()), tunnels: { value: items },
-    proLicense: { isPro: pro }, FREE_PLAN_RUNNING_LIMIT: 3,
-    activeSlots: { value: 0 }, activeSlotLimit: { value: 3 },
+    activeSlots: { value: 0 }, activeSlotLimit: { value: 0 },
     configMessage: { value: '' }, tunnelErrorAiDebugStates: {},
     initialStateLoading: { value: true },
     normalizeTunnelFromBackend: (item) => item,
@@ -28,7 +27,7 @@ function setup(items, pro = true) {
     patchTunnelLocal: (id, updated) => {
       context.tunnels.value = context.tunnels.value.map((item) => item.id === id ? { ...item, ...updated } : item)
     },
-    t: (key) => key, openActionDialog: (options) => { dialogs.push(options) }, openProUpgrade: async () => {},
+    t: (key) => key, openActionDialog: (options) => { dialogs.push(options) },
     logEvent: () => {}, trackTunnelAction: () => {}, errorMessage: (err) => err.message
   })
   for (const [start, end] of [
@@ -78,18 +77,17 @@ test('polling preserves pending state and cannot overwrite a completed action', 
   assert.equal(c.pendingTunnelActions.size, 0)
 })
 
-test('stopping occupies its running slot without counting as a pending start', async () => {
+test('concurrent toggles of different tunnels dispatch independently', async () => {
   const items = [1, 2].map((id) => ({ id, name: `t${id}`, status: 'running' }))
-  const target = { id: 3, name: 't3', status: 'stopped' }
-  const { context: c, request, calls } = setup([...items, target], false)
-  c.activeSlots.value = items.length
+  const target = { id: 3, name: `t3`, status: 'stopped' }
+  const { context: c, request, calls } = setup([...items, target])
   const stopping = c.toggleTunnel(items[0])
   const starting = c.toggleTunnel(target)
   assert.deepEqual(calls, [1, 3])
-  await c.toggleTunnel({ id: 4, status: 'stopped' })
-  assert.deepEqual(calls, [1, 3])
+  assert.deepEqual([...c.pendingTunnelActions.entries()], [[1, 'stop'], [3, 'start']])
   request.reject(new Error('test complete'))
   await Promise.all([stopping, starting])
+  assert.equal(c.pendingTunnelActions.size, 0)
 })
 
 test('polling during a request keeps its busy status and loading record', async () => {
@@ -105,21 +103,9 @@ test('polling during a request keeps its busy status and loading record', async 
   await done
 })
 
-test('free users are blocked at three active slots', async () => {
+test('starting ignores stale active slot counts', async () => {
   const target = { id: 4, name: 't4', status: 'stopped' }
-  const { context: c, calls, dialogs } = setup([target], false)
-  c.activeSlots.value = 3
-  await c.toggleTunnel(target)
-  assert.equal(calls.length, 0)
-  assert.equal(dialogs.length, 1)
-  assert.equal(dialogs[0].mode, 'confirm')
-  assert.equal(dialogs[0].message, 'config.messages.freePlanRunningLimit')
-  assert.equal(typeof dialogs[0].onConfirm, 'function')
-})
-
-test('Pro can start a fourth tunnel even with an old three-slot snapshot', async () => {
-  const target = { id: 4, name: 't4', status: 'stopped' }
-  const { context: c, calls, dialogs, request } = setup([target], true)
+  const { context: c, calls, dialogs, request } = setup([target])
   c.activeSlots.value = 3
   const done = c.toggleTunnel(target)
   assert.deepEqual(calls, [4])

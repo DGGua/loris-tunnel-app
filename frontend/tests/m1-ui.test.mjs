@@ -109,8 +109,8 @@ test('M1 Overview and Tunnels display real SSH-only state and preserve actions',
     const { default: AppSidebar } = await server.ssrLoadModule('/src/components/layout/AppSidebar.vue')
     for (const [collapsed, symbol] of [[false, '‹'], [true, '›']]) {
       const app = createSSRApp(AppSidebar, {
-        pages: [], activePage: 'overview', appVersion: '1', isPro: false,
-        proExpiryLabel: '', collapsed, trafficMonitorEnabled: false
+        pages: [], activePage: 'overview', appVersion: '1',
+        collapsed, trafficMonitorEnabled: false
       })
       app.use(createI18n({ legacy: false, locale: 'en', messages: { en: messages } }))
       const html = await renderToString(app)

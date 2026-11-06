@@ -22,11 +22,8 @@ import {
   DebugJumperFailure as DebugJumperFailureAPI,
   DebugSavedTunnelFailure as DebugSavedTunnelFailureAPI,
   DebugTunnelFailure as DebugTunnelFailureAPI,
-  GetAutoRunEnabled,
   GetDistributionChannel,
-  GetLicenseStatus as GetLicenseStatusAPI,
   GetSSHConfigImportSources,
-  GetStoredLicenseCode,
   GetState,
   GetDevTunnelStatus,
   ListDevTunnelResources,
@@ -51,10 +48,8 @@ import {
   LoadSSHConfigJumpersByPath,
   MoveTunnelToGroup,
   OpenReportEmail,
-  RedeemLicenseCode as RedeemLicenseCodeAPI,
   ReorderGroups,
   SaveUILocale,
-  SetAutoRunEnabled,
   TestJumperConnection as TestJumperConnectionAPI,
   TestTunnelConnection as TestTunnelConnectionAPI,
   ToggleTunnel,
@@ -85,7 +80,6 @@ import ProvidersPage from './components/pages/ProvidersPage.vue'
 import TunnelsPage from './components/pages/TunnelsPage.vue'
 import LogsPage from './components/pages/LogsPage.vue'
 import ConfigPage from './components/pages/ConfigPage.vue'
-import ProPurchaseDialog from './components/common/ProPurchaseDialog.vue'
 import SyncPage from './components/pages/SyncPage.vue'
 import AIDebugModal from './components/common/AIDebugModal.vue'
 import JumperModal from './components/modals/JumperModal.vue'
@@ -224,7 +218,6 @@ const initialStateLoading = ref(true)
 const DEFAULT_RELEASES_PAGE_URL = 'https://github.com/RangerWolf/loris-tunnel-app/releases'
 const releasePageUrl = ref(DEFAULT_RELEASES_PAGE_URL)
 const isCheckingUpdates = ref(false)
-const isRefreshingLicenseStatus = ref(false)
 const updateCheckDialog = reactive({
   visible: false,
   mode: 'idle',
@@ -241,13 +234,6 @@ const appMeta = reactive({
 const distributionChannel = ref('github')
 const isStoreDistribution = computed(() => distributionChannel.value === 'store')
 const hasNewVersion = ref(false)
-const proLicense = reactive({
-  isPro: false,
-  expiresAt: '',
-  isLifetime: false,
-  code: '',
-})
-const LIFETIME_DURATION_DAYS = 36500
 const AI_REPORT_SUPPORT_EMAIL = 'admin@lorisdev.cc'
 const AI_REPORT_SUBJECT = '[Loris Tunnel] Report Inappropriate AI Debug Content'
 const AI_REPORT_MAX_FIELD_LEN = 800
@@ -378,14 +364,6 @@ const actionDialog = reactive({
   lastResult: null,
 })
 const pendingDeletions = ref([])
-let licenseStateRevision = 0
-const redeemDialog = reactive({
-  visible: false,
-  initialTab: 'purchase',
-  code: '',
-  error: '',
-  submitting: false,
-})
 const jumperTest = reactive({
   status: 'idle',
   message: '',
@@ -417,7 +395,6 @@ const JUMPER_LIMITS = {
 const TUNNEL_LIMITS = {
   name: 20,
 }
-const FREE_PLAN_RUNNING_LIMIT = 3
 
 const currentPage = computed(() => pages.value.find((page) => page.key === activePage.value))
 const totalTunnels = computed(() => tunnels.value.length)
@@ -487,12 +464,6 @@ const jumperNeedsKeyFile = computed(() => authNeedsKeyFile(jumperForm.authType))
 const inlineJumperNeedsPassword = computed(() => authNeedsPassword(inlineJumperForm.authType))
 const inlineJumperShowsPassword = computed(() => authShowsPassword(inlineJumperForm.authType))
 const inlineJumperNeedsKeyFile = computed(() => authNeedsKeyFile(inlineJumperForm.authType))
-const isPro = computed(() => proLicense.isPro)
-const proExpiryLabel = computed(() => {
-  if (!proLicense.isPro) return '--'
-  if (proLicense.isLifetime) return t('config.lifetime')
-  return formatDateTime(proLicense.expiresAt)
-})
 
 function defaultJumperForm() {
   return {
@@ -590,20 +561,6 @@ function defaultAIDebugState() {
 
 function nowLabel() {
   return new Date().toLocaleString()
-}
-
-function formatDateTime(value) {
-  if (!value) return '--'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return String(value)
-  return date.toLocaleDateString()
-}
-
-function applyLicenseState({ active = false, expire_time = null, is_lifetime = false, code = '' }) {
-  proLicense.isPro = !!active
-  proLicense.expiresAt = expire_time ? String(expire_time) : ''
-  proLicense.isLifetime = !!is_lifetime
-  proLicense.code = code ? String(code) : ''
 }
 
 function openExternalUrl(url) {
@@ -1862,53 +1819,6 @@ function hideConfigToast() {
   }
 }
 
-async function refreshLicenseStatus(options = {}) {
-  const { silent = false } = options
-  const revision = licenseStateRevision
-  try {
-    const status = await GetLicenseStatusAPI()
-    if (revision !== licenseStateRevision || redeemDialog.submitting) return null
-    if (!status || typeof status.active !== 'boolean') throw new Error(t('purchase.statusFailed'))
-    applyLicenseState(status)
-    if (!silent) {
-      if (proLicense.isPro) {
-        configMessage.value = t('config.messages.licenseActive', { expiry: proExpiryLabel.value })
-        logEvent('info', `License status refreshed: active (${proExpiryLabel.value})`)
-      } else {
-        configMessage.value = t('config.messages.licenseInactive')
-        logEvent('info', 'License status refreshed: inactive')
-      }
-    }
-    return true
-  } catch (err) {
-    if (!silent) {
-      const message = errorMessage(err, 'Failed to query license status from Wails backend.')
-      configMessage.value = message
-      logEvent('error', message)
-    }
-    return false
-  }
-}
-
-async function refreshLicenseStatusFromConfig() {
-  if (isRefreshingLicenseStatus.value) return
-  isRefreshingLicenseStatus.value = true
-  try {
-    await refreshLicenseStatus()
-  } finally {
-    isRefreshingLicenseStatus.value = false
-  }
-}
-
-async function loadStoredLicenseCode() {
-  try {
-    const code = String((await GetStoredLicenseCode()) || '').trim()
-    if (code) proLicense.code = code
-  } catch (_) {
-    // local display cache is optional
-  }
-}
-
 async function checkForUpdates() {
   if (isStoreDistribution.value) {
     setConfigMessage(t('config.storeUpdatesManaged'))
@@ -1977,26 +1887,6 @@ function openReleasePage() {
 
 function closeUpdateCheckDialog() {
   updateCheckDialog.visible = false
-}
-
-function openProUpgrade(tab = 'purchase') {
-  if (proLicense.isPro) {
-    configMessage.value = t('config.messages.proActive', { expiry: proExpiryLabel.value })
-    logEvent('info', `Checked Pro expiry (${proExpiryLabel.value})`)
-    void refreshLicenseStatus()
-    return
-  }
-
-  if (redeemDialog.visible) return
-  openRedeemDialog(tab)
-  void refreshLicenseStatus({ silent: true }).then((ok) => {
-    if (ok === false) configMessage.value = t('purchase.statusFailed')
-    if (ok && proLicense.isPro && !redeemDialog.submitting) {
-      closeRedeemDialog(true)
-      configMessage.value = t('config.messages.proActive', { expiry: proExpiryLabel.value })
-      logEvent('info', `Checked Pro expiry (${proExpiryLabel.value})`)
-    }
-  })
 }
 
 function resetJumperValidation() {
@@ -2144,9 +2034,8 @@ function validateJumperPayload(payload) {
   }
   if (payload.password.length > JUMPER_LIMITS.password) return `Password length must be <= ${JUMPER_LIMITS.password}.`
   if (payload.notes.length > JUMPER_LIMITS.notes) return `Notes length must be <= ${JUMPER_LIMITS.notes}.`
-  if (authNeedsKeyFile(payload.authType) && !payload.keyPath) {
-    return 'SSH Key mode requires selecting a key file.'
-  }
+  // ssh_key with an empty key path is allowed: it means "auto", i.e. try
+  // every private key under ~/.ssh when the connection is established.
   if (authNeedsPassword(payload.authType) && !payload.password) {
     return 'Current auth method requires a password.'
   }
@@ -2714,7 +2603,8 @@ function openNewTunnel() {
   resetTunnelTest()
   resetAIDebugState(tunnelAiDebug)
   tunnelValidationError.value = ''
-  tunnelForm.jumperIds = jumpers.value.length ? [jumpers.value[0].id] : []
+  // Leave the primary jumper unselected; it is required at submit time.
+  tunnelForm.jumperIds = []
   tunnelForm.nextJumperId = getNextTunnelJumperCandidate(tunnelForm.jumperIds)
   tunnelForm.appendNewJumper = jumpers.value.length === 0
   showTunnelModal.value = true
@@ -2828,7 +2718,7 @@ async function importTunnels(tunnelsToImport) {
             host: config.host,
             port: config.port,
             user: config.user,
-            authType: config.keyPath ? 'ssh_key' : 'ssh_agent',
+            authType: 'ssh_key',
             keyPath: config.keyPath || '',
             agentSocketPath: '',
             password: '',
@@ -3092,7 +2982,10 @@ async function persistTunnel() {
       tunnelValidationError.value = 'Tunnel name must be <= 20 chars or <= 10 Chinese chars.'
       return
     }
-    if (provider === 'ssh' && !payload.jumperIds.length) return
+    if (provider === 'ssh' && !payload.jumperIds.length) {
+      tunnelValidationError.value = t('app.modals.tunnel.testSelectJumper')
+      return
+    }
     if (provider === 'ssh' && payload.mode !== 'dynamic' && (!payload.remoteHost || !payload.remotePort)) return
     if (provider === 'devtunnel' && !isValidTargetHost(payload.localHost)) {
       tunnelValidationError.value = t('app.modals.tunnel.invalidTargetHost')
@@ -3145,22 +3038,6 @@ async function toggleTunnel(tunnel) {
   }
 
   const shouldStart = tunnel.status === 'stopped' || tunnel.status === 'error'
-  const runningLimit = proLicense.isPro ? 0 : FREE_PLAN_RUNNING_LIMIT
-  const pendingStartCount = [...pendingTunnelActions.values()].filter((action) => action === 'start').length
-  if (runningLimit > 0 && tunnel.status !== 'running' && Number(activeSlots.value) + pendingStartCount >= runningLimit) {
-    const message = t('config.messages.freePlanRunningLimit', { limit: runningLimit })
-    openActionDialog({
-      mode: 'confirm',
-      message,
-      confirmButtonClass: 'btn-primary',
-      confirmLabel: t('app.sidebar.upgrade'),
-      onConfirm: async () => {
-        await openProUpgrade()
-      },
-    })
-    logEvent('warn', message)
-    return
-  }
 
   const previousStatus = tunnel.status
   const previousError = tunnel.lastError || ''
@@ -3267,59 +3144,6 @@ async function secondaryActionDialog() {
   closeActionDialog()
   if (typeof handler === 'function') {
     await handler()
-  }
-}
-
-function openRedeemDialog(tab = 'purchase') {
-  redeemDialog.initialTab = tab === 'activate' ? 'activate' : 'purchase'
-  redeemDialog.visible = true
-  redeemDialog.code = ''
-  redeemDialog.error = ''
-  redeemDialog.submitting = false
-}
-
-function closeRedeemDialog(force = false) {
-  if (redeemDialog.submitting && !force) return
-  redeemDialog.visible = false
-  redeemDialog.code = ''
-  redeemDialog.error = ''
-}
-
-async function submitRedeemDialog() {
-  if (redeemDialog.submitting) return
-  const code = String(redeemDialog.code || '').trim()
-  if (!code) {
-    redeemDialog.error = t('config.messages.enterLicenseCode')
-    return
-  }
-
-  redeemDialog.error = ''
-  redeemDialog.submitting = true
-  licenseStateRevision++
-  try {
-    const redeemResult = await RedeemLicenseCodeAPI(code)
-    if (!redeemResult?.success) {
-      throw new Error(redeemResult?.message || t('purchase.inactiveCode'))
-    }
-    if (!redeemResult.active) throw new Error(t('purchase.inactiveCode'))
-    licenseStateRevision++
-    applyLicenseState({
-      active: redeemResult?.active,
-      expire_time: redeemResult?.expire_time,
-      is_lifetime: redeemResult?.added_days >= LIFETIME_DURATION_DAYS,
-      code: redeemResult?.code || code,
-    })
-    configMessage.value = t('config.messages.licenseRedeemedWithExpiry', { expiry: proExpiryLabel.value })
-    logEvent('info', `License redeemed successfully (${proExpiryLabel.value})`)
-    closeRedeemDialog(true)
-    void refreshLicenseStatus({ silent: true })
-  } catch (err) {
-    const message = errorMessage(err, 'Failed to redeem license code.')
-    redeemDialog.error = message
-    configMessage.value = message
-    logEvent('error', message)
-  } finally {
-    redeemDialog.submitting = false
   }
 }
 
@@ -3664,7 +3488,6 @@ onMounted(async () => {
   } catch (_) {
     /* tray locale sync is best-effort */
   }
-  await loadStoredLicenseCode()
   try {
     const channel = String((await GetDistributionChannel()) || '')
       .trim()
@@ -3672,17 +3495,6 @@ onMounted(async () => {
     if (channel === 'store') distributionChannel.value = 'store'
   } catch (_) {
     // GitHub is the safe default for development/older bindings.
-  }
-  const licenseStatusReady = await refreshLicenseStatus({ silent: true })
-  // If launch at login is on but user is not Pro or expired, disable it and show upgrade prompt
-  try {
-    const autoRunEnabled = await GetAutoRunEnabled()
-    if (licenseStatusReady && autoRunEnabled && !proLicense.isPro) {
-      configMessage.value = t('config.autoRunExpiredDisabled')
-      await SetAutoRunEnabled(false)
-    }
-  } catch (err) {
-    logEvent('error', errorMessage(err, 'Failed to check or reset launch-at-login (AutoRun).'))
   }
   try {
     trafficMonitorEnabled.value = await GetTrafficMonitorEnabled()
@@ -3756,17 +3568,13 @@ function closeTunnelModal() {
         :pages="pages"
         :active-page="activePage"
         :app-version="appMeta.version"
-        :is-pro="isPro"
-        :pro-expiry-label="proExpiryLabel"
         :has-new-version="hasNewVersion"
         :collapsed="sidebarCollapsed"
         :traffic-monitor-enabled="trafficMonitorEnabled"
         :traffic="traffic"
         :traffic-history-up="trafficHistoryUp"
         :traffic-history-down="trafficHistoryDown"
-        :show-upgrade-button="true"
         @switch-page="switchPage"
-        @upgrade="openProUpgrade"
         @open-release-page="openReleasePage"
         @toggle-collapse="toggleSidebar"
       />
@@ -3943,20 +3751,14 @@ function closeTunnelModal() {
             :accent-color="accentColor"
             :app-meta="appMeta"
             :is-store-distribution="isStoreDistribution"
-            :is-pro="isPro"
-            :pro-expiry-label="proExpiryLabel"
-            :license-code="proLicense.code"
             :config-message="configMessage"
             :is-checking-updates="isCheckingUpdates"
-            :is-refreshing-license-status="isRefreshingLicenseStatus"
             :update-check-dialog="updateCheckDialog"
             @theme-change="setThemeBySwitch"
             @accent-color-change="setAccentColor"
             @check-updates="checkForUpdates"
             @open-release-page="openReleasePage"
             @close-update-check-dialog="closeUpdateCheckDialog"
-            @refresh-license-status="refreshLicenseStatusFromConfig"
-            @upgrade="openProUpgrade"
             @set-config-message="setConfigMessage"
             @reload-state="loadStateFromBackend"
             @confirm-action="openActionDialog"
@@ -4091,17 +3893,6 @@ function closeTunnelModal() {
       @retry-debug="retrySavedTunnelAIDebug"
       @test-again="retestSavedTunnelFromAIDebug"
       @report-content="reportAIDebugContent('saved_tunnel', selectedAIDebugTunnelState)"
-    />
-
-    <ProPurchaseDialog
-      v-if="redeemDialog.visible"
-      v-model:code="redeemDialog.code"
-      :initial-tab="redeemDialog.initialTab"
-      :error="redeemDialog.error"
-      :submitting="redeemDialog.submitting"
-      @close="closeRedeemDialog()"
-      @submit="submitRedeemDialog"
-      @purchase="openExternalUrl"
     />
 
     <JumperModal
