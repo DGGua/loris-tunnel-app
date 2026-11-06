@@ -934,10 +934,13 @@ func makeSSHClientConfig(jumper model.Jumper) (*ssh.ClientConfig, error) {
 		Timeout:         timeout,
 	}
 
-	// 添加HostKeyAlgorithms支持
+	// 添加HostKeyAlgorithms支持；未指定时按 OpenSSH 客户端的偏好顺序
+	// （ed25519 优先）协商主机密钥
 	if jumper.HostKeyAlgorithms != "" {
 		algorithms := parseHostKeyAlgorithms(jumper.HostKeyAlgorithms)
 		config.HostKeyAlgorithms = algorithms
+	} else {
+		config.HostKeyAlgorithms = getDefaultHostKeyAlgorithms()
 	}
 
 	return config, nil
@@ -1316,17 +1319,18 @@ func parseHostKeyAlgorithms(s string) []string {
 	}
 }
 
-// getDefaultHostKeyAlgorithms 返回Go SSH默认支持的主机密钥算法
+// getDefaultHostKeyAlgorithms 返回主机密钥算法偏好，与 OpenSSH 客户端一致：
+// 优先 ed25519。用户的 known_hosts 通常只记录了 ssh CLI 写入的 ed25519 主机
+// 密钥，若客户端先尝试 ECDSA 会误报 "knownhosts: key mismatch"。
 func getDefaultHostKeyAlgorithms() []string {
-	// Go SSH默认支持的主机密钥算法
 	return []string{
-		"ssh-rsa",
-		"rsa-sha2-256",
-		"rsa-sha2-512",
+		"ssh-ed25519",
 		"ecdsa-sha2-nistp256",
 		"ecdsa-sha2-nistp384",
 		"ecdsa-sha2-nistp521",
-		"ssh-ed25519",
+		"rsa-sha2-512",
+		"rsa-sha2-256",
+		"ssh-rsa",
 	}
 }
 

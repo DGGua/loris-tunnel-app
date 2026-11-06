@@ -217,6 +217,20 @@ func containsString(list []string, target string) bool {
 	return countString(list, target) > 0
 }
 
+func TestDefaultHostKeyAlgorithmsPrefersED25519(t *testing.T) {
+	algos := getDefaultHostKeyAlgorithms()
+	if len(algos) == 0 || algos[0] != "ssh-ed25519" {
+		t.Fatalf("algos = %v, want ssh-ed25519 first", algos)
+	}
+	seen := map[string]bool{}
+	for _, algo := range algos {
+		if seen[algo] {
+			t.Fatalf("duplicate algorithm %q in %v", algo, algos)
+		}
+		seen[algo] = true
+	}
+}
+
 func countString(list []string, target string) int {
 	count := 0
 	for _, item := range list {
