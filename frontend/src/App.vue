@@ -1,7 +1,9 @@
 <script setup>
 import { frpState, refreshFRP } from './utils/frp'
 import { frpImportSignature } from './utils/frpc-import'
-import { devTunnelServiceOwner, cloudflareHostnameOwner } from './utils/tunnel-bindings'
+import { devTunnelServiceOwner, devTunnelNameOwner, sameTunnelID, cloudflareHostnameOwner } from './utils/tunnel-bindings'
+import { isDevTunnelNameConflict } from './utils/devtunnel-name'
+import { normalizeDevTunnelName, DEV_TUNNEL_NAME_PATTERN } from './utils/devtunnel-name'
 import { startCloudflareZoneAuthorization } from './utils/cloudflare-authorizations'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch, watchEffect } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -505,6 +507,7 @@ function defaultTunnelForm() {
     region: '',
     tunnelId: '',
     tunnelIdMode: 'auto',
+    devTunnelName: '',
     originalTunnelId: '',
     tunnelName: '',
     hostname: '',
@@ -530,6 +533,24 @@ function devTunnelExpirationError(amount, unit) {
   const max = unit === 'h' ? 720 : 30
   if ((unit !== 'h' && unit !== 'd') || !Number.isInteger(parsed) || parsed < 1 || parsed > max) {
     return t('app.modals.tunnel.expirationInvalid')
+  }
+  return ''
+}
+
+// Mirrors devtunnel.NormalizeTunnelName: 3-49 lowercase letters, digits, or
+// hyphens, starting and ending with a letter or digit. Consecutive inner
+// hyphens follow the current Microsoft contract.
+function devTunnelNameTakenRemotely(name) {
+  return (devTunnelResources.items || []).some(item => sameTunnelID(item.id, name))
+}
+
+function devTunnelNameError(raw, { touched = true } = {}) {
+  const name = normalizeDevTunnelName(raw)
+  if (!name) {
+    return touched ? t('app.modals.tunnel.customIdRequired') : ''
+  }
+  if (!DEV_TUNNEL_NAME_PATTERN.test(name)) {
+    return t('app.modals.tunnel.customIdInvalid')
   }
   return ''
 }
@@ -804,9 +825,10 @@ function logEvent(level, message) {
 
 function errorMessage(err, fallback = 'Operation failed.') {
   if (!err) return fallback
-  if (typeof err === 'string') return err
-  if (typeof err.message === 'string' && err.message) return err.message
-  return fallback
+  const raw = typeof err === 'string' ? err : (typeof err.message === 'string' && err.message ? err.message : '')
+  if (!raw) return fallback
+  if (isDevTunnelNameConflict(raw)) return t('app.modals.tunnel.customIdRemoteConflict')
+  return raw
 }
 
 function aiDebugErrorMessage(err, fallback = 'AI Debug failed.') {
@@ -1100,9 +1122,20 @@ async function inspectDevTunnelID(id) {
   const trimmed = String(id || '').trim()
   tunnelForm.resourceError = ''
   tunnelForm.portLocked = false
+  if (trimmed === '__custom__') {
+    tunnelForm.tunnelIdMode = 'custom'
+    tunnelForm.tunnelId = ''
+    tunnelForm.tunnelPort = 0
+    tunnelForm.publicUrl = ''
+    tunnelForm.remoteExpiration = ''
+    tunnelForm.resourceNote = ''
+    return
+  }
   if (!trimmed) {
     tunnelForm.tunnelIdMode = 'auto'
     tunnelForm.tunnelId = ''
+    tunnelForm.devTunnelName = ''
+    tunnelForm.access = 'private'
     tunnelForm.remoteExpiration = ''
     tunnelForm.publicUrl = ''
     tunnelForm.resourceNote = t('app.modals.tunnel.autoCreateHint')
@@ -1111,6 +1144,7 @@ async function inspectDevTunnelID(id) {
   if (tunnelForm.tunnelId !== trimmed) { tunnelForm.publicUrl = ''; tunnelForm.tunnelPort = 0 }
   tunnelForm.tunnelIdMode = 'bind'
   tunnelForm.tunnelId = trimmed
+  tunnelForm.access = 'unknown'
   tunnelForm.resourceNote = t('app.modals.tunnel.tunnelIdLoading')
   try {
     const detail = await getDevTunnelResourceCached(trimmed)
@@ -1130,11 +1164,11 @@ async function inspectDevTunnelID(id) {
       ...String(tunnelForm.publicUrl || '').split(','),
       ...(resource.urls || []),
     ], tunnelForm.tunnelPort).join(', ')
-    if (resource.access === 'public' || resource.access === 'private') tunnelForm.access = resource.access
+    tunnelForm.access = resource.access === 'public' || resource.access === 'private' ? resource.access : 'unknown'
     applyRemoteExpiration(resource.expiration)
     tunnelForm.portLocked = false
     tunnelForm.resourceError = ''
-    tunnelForm.resourceNote = t('app.modals.tunnel.sharedIdHint')
+    tunnelForm.resourceNote = ''
   } catch (err) {
     if (seq !== devTunnelInspectSeq) return
     tunnelForm.resourceError = errorMessage(err)
@@ -1171,7 +1205,7 @@ async function createDevTunnelResource(input) {
   try {
     const detail = await CreateDevTunnelResource(input)
     if (detail?.state !== 'ready' || !detail.resource?.id) {
-      devTunnelCreateError.value = regionCreateMessage(detail?.detail, t) || t('app.providers.loadFailed')
+      devTunnelCreateError.value = devTunnelCreateFailureText(detail?.detail)
       return
     }
     // Creation already returns the confirmed resource; don't wait for a full CLI list.
@@ -1192,6 +1226,11 @@ async function createDevTunnelResource(input) {
   } finally {
     devTunnelResourceBusy.value = ''
   }
+}
+
+function devTunnelCreateFailureText(detail) {
+  if (isDevTunnelNameConflict(detail)) return t('app.modals.tunnel.customIdRemoteConflict')
+  return regionCreateMessage(detail, t) || t('app.providers.loadFailed')
 }
 
 async function deleteDevTunnelResourceByID(payload) {
@@ -1466,6 +1505,7 @@ async function inspectCloudflareID(id) {
   }
   tunnelForm.tunnelIdMode = 'bind'
   tunnelForm.tunnelId = trimmed
+  tunnelForm.access = 'unknown'
   tunnelForm.resourceNote = t('app.modals.tunnel.tunnelIdLoading')
   const item = (cloudflareResources.items || []).find((entry) => String(entry.id).toLowerCase() === trimmed.toLowerCase())
   if (item?.name) tunnelForm.tunnelName = item.name
@@ -1966,10 +2006,11 @@ function buildTunnelPayload(status = 'stopped') {
     } : null,
   }
   if (provider === 'devtunnel') {
-    const idMode = tunnelForm.tunnelIdMode === 'bind' ? 'bind' : 'auto'
+    const idMode = tunnelForm.tunnelIdMode === 'bind' ? 'bind' : tunnelForm.tunnelIdMode === 'custom' ? 'custom' : 'auto'
     payload.devTunnelIdMode = idMode
     payload.devTunnel = {
       tunnelId: idMode === 'bind' ? tunnelForm.tunnelId || '' : '',
+      tunnelName: idMode === 'custom' ? String(tunnelForm.devTunnelName || '').trim().toLowerCase() : '',
       localHost: payload.localHost,
       localPort: payload.localPort,
       protocol: payload.mode,
@@ -2479,6 +2520,7 @@ function captureProviderDraft(provider) {
       region: tunnelForm.region,
       tunnelId: tunnelForm.tunnelId,
       tunnelIdMode: tunnelForm.tunnelIdMode,
+      devTunnelName: tunnelForm.devTunnelName,
       originalTunnelId: tunnelForm.originalTunnelId,
       portLocked: tunnelForm.portLocked,
       tunnelPort: tunnelForm.tunnelPort,
@@ -2528,6 +2570,7 @@ function applyProviderDraft(provider) {
         region: '',
         tunnelId: '',
         tunnelIdMode: 'auto',
+        devTunnelName: '',
         originalTunnelId: '',
         portLocked: false,
         tunnelPort: 0,
@@ -2790,7 +2833,9 @@ function fillTunnelFormFromTunnel(tunnel, nameOverride = null, options = {}) {
   const expiration = splitDevTunnelExpiration(tunnel.devTunnel?.expiration)
   const cloudflareID = options.clearTunnelId ? '' : tunnel.cloudflare?.tunnelId || ''
   const devID = options.clearTunnelId ? '' : tunnel.devTunnel?.tunnelId || ''
+  const devName = options.clearTunnelId ? '' : String(tunnel.devTunnel?.tunnelName || '').trim().toLowerCase()
   const boundID = provider === 'cloudflare' ? cloudflareID : devID
+  const devIDMode = options.clearTunnelId ? 'auto' : boundID ? 'bind' : devName ? 'custom' : 'auto'
   const hostname = options.clearTunnelId ? '' : tunnel.cloudflare?.hostname || ''
   Object.assign(tunnelForm, {
     name: nameOverride ?? tunnel.name,
@@ -2825,7 +2870,10 @@ function fillTunnelFormFromTunnel(tunnel, nameOverride = null, options = {}) {
     expirationUnit: expiration.unit,
     region: options.clearTunnelId || boundID ? '' : (tunnel.devTunnel?.region || ''),
     tunnelId: boundID,
-    tunnelIdMode: options.clearTunnelId || !boundID ? 'auto' : 'bind',
+    tunnelIdMode: provider === 'cloudflare'
+      ? (options.clearTunnelId || !boundID ? 'auto' : 'bind')
+      : devIDMode,
+    devTunnelName: provider === 'cloudflare' ? '' : devName,
     originalTunnelId: boundID,
     tunnelName: options.clearTunnelId ? '' : tunnel.cloudflare?.tunnelName || '',
     hostname,
@@ -2833,7 +2881,9 @@ function fillTunnelFormFromTunnel(tunnel, nameOverride = null, options = {}) {
     tunnelPort: options.clearTunnelId ? 0 : Number(tunnel.devTunnel?.tunnelPort || 0),
     resourceError: '',
     resourceNote: options.clearTunnelId || !boundID
-      ? t(provider === 'cloudflare' ? 'app.cloudflare.autoCreate' : 'app.modals.tunnel.autoCreateHint')
+      ? (provider === 'cloudflare'
+        ? t('app.cloudflare.autoCreate')
+        : devName ? '' : t('app.modals.tunnel.autoCreateHint'))
       : '',
     remoteExpiration: '',
     publicUrl: provider === 'cloudflare' ? cloudflarePublicURL(hostname) : options.clearTunnelId ? '' : String(tunnel.publicUrl || tunnel.devTunnel?.lastPublicUrl || '').trim(),
@@ -2878,10 +2928,9 @@ function addJumperToTunnelChain(jumperId) {
 function setPrimaryJumperForTunnelChain(jumperId) {
   const id = Number(jumperId)
   if (!Number.isInteger(id) || id <= 0) return
-  const ids = normalizeJumperIdList(tunnelForm.jumperIds).filter((item) => item !== id)
-  // When the tunnel currently only has one jumper, changing the primary hop
-  // should replace that hop instead of preserving it as an unintended second hop.
-  tunnelForm.jumperIds = ids.length > 0 ? [id, ...ids] : [id]
+  const ids = normalizeJumperIdList(tunnelForm.jumperIds)
+  // Preserve other hops only when the user already has a multi-hop chain.
+  tunnelForm.jumperIds = ids.length > 1 ? [id, ...ids.filter((item) => item !== id)] : [id]
   tunnelForm.nextJumperId = getNextTunnelJumperCandidate(tunnelForm.jumperIds)
 }
 
@@ -2969,7 +3018,7 @@ async function persistTunnel() {
     const payload = buildTunnelPayload(editingStatus === 'busy' ? 'stopped' : editingStatus)
     if (provider === 'ssh') payload.jumperIds = selectedJumperIds
     const owner = provider === 'devtunnel'
-      ? devTunnelServiceOwner(tunnels.value, payload.devTunnel?.tunnelId, payload.localHost, payload.localPort, editingTunnelId.value)
+      ? devTunnelServiceOwner(tunnels.value, payload.devTunnel?.tunnelId, editingTunnelId.value)
       : provider === 'cloudflare' ? cloudflareHostnameOwner(tunnels.value, payload.cloudflare?.hostname, editingTunnelId.value) : null
     if (owner) {
       tunnelValidationError.value = t(provider === 'devtunnel' ? 'app.modals.tunnel.duplicateService' : 'app.cloudflare.duplicateHostname', { name: owner.name })
@@ -2996,6 +3045,22 @@ async function persistTunnel() {
       if (expirationError) {
         tunnelValidationError.value = expirationError
         return
+      }
+      if (tunnelForm.tunnelIdMode === 'custom') {
+        const nameError = devTunnelNameError(tunnelForm.devTunnelName)
+        if (nameError) {
+          tunnelValidationError.value = nameError
+          return
+        }
+        const localOwner = devTunnelNameOwner(tunnels.value, normalizeDevTunnelName(tunnelForm.devTunnelName), editingTunnelId.value)
+        if (localOwner) {
+          tunnelValidationError.value = t('app.modals.tunnel.customIdOccupied', { name: localOwner.name })
+          return
+        }
+        if (devTunnelNameTakenRemotely(normalizeDevTunnelName(tunnelForm.devTunnelName))) {
+          tunnelValidationError.value = t('app.modals.tunnel.customIdRemoteConflict')
+          return
+        }
       }
     }
     if (provider === 'cloudflare') {
@@ -3052,6 +3117,12 @@ async function toggleTunnel(tunnel) {
     patchTunnelLocal(updated.id, updated)
 
     if (updated.status === 'error') {
+      // A name conflict carries a stable backend marker; show a localized
+      // explanation instead of the raw CLI text.
+      if (updated.lastError && isDevTunnelNameConflict(updated.lastError)) {
+        updated.lastError = t('app.modals.tunnel.customIdRemoteConflict')
+        patchTunnelLocal(updated.id, updated)
+      }
       const reason = updated.lastError ? `: ${updated.lastError}` : ''
       logEvent('error', `Tunnel ${updated.name} failed${reason}`)
       return
