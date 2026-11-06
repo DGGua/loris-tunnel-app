@@ -4,6 +4,8 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/rsa"
+	"encoding/pem"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -150,6 +152,7 @@ func TestAgentSocketCandidates_OrderAndNormalization(t *testing.T) {
 	resetSSHAgent()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	t.Setenv("LORIS_TUNNEL_SSH_AUTH_SOCK", "~/custom-agent.sock")
 	t.Setenv("SSH_AUTH_SOCK", "/tmp/another-agent.sock")
 
@@ -176,6 +179,7 @@ func TestAgentSocketCandidates_Dedup(t *testing.T) {
 	resetSSHAgent()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	t.Setenv("LORIS_TUNNEL_SSH_AUTH_SOCK", "/tmp/shared-agent.sock")
 	t.Setenv("SSH_AUTH_SOCK", "/tmp/shared-agent.sock")
 
@@ -189,6 +193,7 @@ func TestAgentSocketCandidates_PreferJumperSocket(t *testing.T) {
 	resetSSHAgent()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	t.Setenv("LORIS_TUNNEL_SSH_AUTH_SOCK", "/tmp/loris-agent.sock")
 	t.Setenv("SSH_AUTH_SOCK", "/tmp/system-agent.sock")
 
@@ -220,4 +225,74 @@ func countString(list []string, target string) int {
 		}
 	}
 	return count
+}
+
+func TestLoadSSHDirSignersTriesAllPrivateKeys(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+
+	sshDir := filepath.Join(home, ".ssh")
+	if err := os.MkdirAll(sshDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	write := func(name string, data []byte) {
+		if err := os.WriteFile(filepath.Join(sshDir, name), data, 0o600); err != nil {
+			t.Fatalf("write %s failed: %v", name, err)
+		}
+	}
+
+	_, edKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	block, err := ssh.MarshalPrivateKey(edKey, "auto-test")
+	if err != nil {
+		t.Fatalf("marshal ed25519 failed: %v", err)
+	}
+	write("id_test", pem.EncodeToMemory(block))
+
+	// public keys and junk files must be skipped, never parsed
+	write("id_test.pub", []byte("ssh-ed25519 AAAA public"))
+	write("notes.txt", []byte("definitely not a key"))
+
+	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rsaBlock, err := ssh.MarshalPrivateKey(rsaKey, "auto-rsa")
+	if err != nil {
+		t.Fatalf("marshal rsa failed: %v", err)
+	}
+	write("id_rsa_bak", pem.EncodeToMemory(rsaBlock))
+
+	signers, err := loadSSHDirSigners("")
+	if err != nil {
+		t.Fatalf("loadSSHDirSigners failed: %v", err)
+	}
+	if len(signers) != 2 {
+		t.Fatalf("signers = %d, want 2", len(signers))
+	}
+
+	encBlock, err := ssh.MarshalPrivateKeyWithPassphrase(edKey, "encrypted", []byte("secret"))
+	if err != nil {
+		t.Fatalf("marshal encrypted key failed: %v", err)
+	}
+	write("zz_encrypted", pem.EncodeToMemory(encBlock))
+
+	withoutPass, err := loadSSHDirSigners("")
+	if err != nil {
+		t.Fatalf("loadSSHDirSigners failed: %v", err)
+	}
+	if len(withoutPass) != 2 {
+		t.Fatalf("signers without passphrase = %d, want 2 (encrypted key skipped)", len(withoutPass))
+	}
+
+	withPass, err := loadSSHDirSigners("secret")
+	if err != nil {
+		t.Fatalf("loadSSHDirSigners failed: %v", err)
+	}
+	if len(withPass) != 3 {
+		t.Fatalf("signers with passphrase = %d, want 3", len(withPass))
+	}
 }

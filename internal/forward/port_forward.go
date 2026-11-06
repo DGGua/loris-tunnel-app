@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -950,6 +951,18 @@ func makeAuthMethod(jumper model.Jumper) (ssh.AuthMethod, error) {
 		}
 		return ssh.Password(jumper.Password), nil
 	case "ssh_key":
+		if strings.TrimSpace(jumper.KeyPath) == "" {
+			// Auto mode: try every private key under ~/.ssh, mirroring the
+			// ssh client's default identity probing.
+			signers, signersErr := loadSSHDirSigners(jumper.Password)
+			if signersErr != nil {
+				return nil, signersErr
+			}
+			if len(signers) == 0 {
+				return nil, fmt.Errorf("ssh_key auth with empty key path: no usable private keys found under ~/.ssh")
+			}
+			return ssh.PublicKeys(signers...), nil
+		}
 		signer, err := loadPrivateSigner(jumper.KeyPath, jumper.Password)
 		if err != nil {
 			return nil, err
@@ -1061,6 +1074,63 @@ func loadPrivateSigner(keyPath, passphrase string) (ssh.Signer, error) {
 		return nil, fmt.Errorf("parse key failed: %w", err)
 	}
 	return signer, nil
+}
+
+// skipKeyFileNames lists well-known ~/.ssh files that are never private keys.
+var skipKeyFileNames = map[string]bool{
+	"config":          true,
+	"known_hosts":     true,
+	"known_hosts.old": true,
+	"authorized_keys": true,
+	"authorized_keys2": true,
+}
+
+// loadSSHDirSigners loads every parseable private key under ~/.ssh so that an
+// empty key path can try them all, mirroring the ssh client's default
+// identity probing. Files that fail to parse (public keys, notes, encrypted
+// keys without the right passphrase) are skipped silently.
+func loadSSHDirSigners(passphrase string) ([]ssh.Signer, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, fmt.Errorf("resolve home dir failed: %w", err)
+	}
+	sshDir := filepath.Join(home, ".ssh")
+	entries, err := os.ReadDir(sshDir)
+	if err != nil {
+		return nil, fmt.Errorf("read ~/.ssh failed (%s): %w", sshDir, err)
+	}
+
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if strings.HasSuffix(name, ".pub") || strings.HasSuffix(name, ".cert") ||
+			skipKeyFileNames[name] || strings.HasPrefix(name, "known_hosts") ||
+			strings.HasPrefix(name, "authorized_keys") {
+			continue
+		}
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	signers := make([]ssh.Signer, 0, len(names))
+	for _, name := range names {
+		raw, readErr := os.ReadFile(filepath.Join(sshDir, name))
+		if readErr != nil {
+			continue
+		}
+		signer, parseErr := ssh.ParsePrivateKey(raw)
+		if parseErr != nil && passphrase != "" {
+			signer, parseErr = ssh.ParsePrivateKeyWithPassphrase(raw, []byte(passphrase))
+		}
+		if parseErr != nil {
+			continue // not a usable private key: try the next one
+		}
+		signers = append(signers, ensureSignerSupportsLegacyRSA(signer))
+	}
+	return signers, nil
 }
 
 func resolveKeyPath(path string) (string, error) {

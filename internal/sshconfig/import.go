@@ -99,7 +99,7 @@ func LoadImportCandidates(configPath string) (model.SSHConfigImportResult, error
 	aliases := collectExplicitAliases(p.entries)
 	candidates := make([]model.SSHConfigImportCandidate, 0, len(aliases))
 	for _, alias := range aliases {
-		resolved := resolveAlias(alias, p.entries)
+		resolved := applyDefaultIdentity(resolveAlias(alias, p.entries))
 		candidates = append(candidates, model.SSHConfigImportCandidate{
 			Alias:                  alias,
 			Name:                   alias,
@@ -308,10 +308,54 @@ func resolveAlias(alias string, entries []configEntry) resolvedAlias {
 }
 
 func deriveAuthType(resolved resolvedAlias) string {
-	if strings.TrimSpace(resolved.keyPath) != "" {
-		return "ssh_key"
+	// ssh_key with an empty key path means "auto": try every private key
+	// under ~/.ssh when connecting. Explicit agent config still wins.
+	if strings.TrimSpace(resolved.agentSocketPath) != "" {
+		return "ssh_agent"
 	}
-	return "ssh_agent"
+	return "ssh_key"
+}
+
+// defaultIdentityNames lists standard OpenSSH private key file names in
+// preference order, mirroring the identities the ssh client tries by default.
+var defaultIdentityNames = []string{
+	"id_ed25519",
+	"id_ecdsa_sk",
+	"id_ed25519_sk",
+	"id_ecdsa",
+	"id_rsa",
+	"id_dsa",
+}
+
+// applyDefaultIdentity falls back to a standard private key under ~/.ssh when
+// the config entry defines neither an identity file nor an agent, matching the
+// behavior of the ssh client. The stored path keeps the "~/" form; it is
+// expanded when the tunnel connects.
+func applyDefaultIdentity(resolved resolvedAlias) resolvedAlias {
+	if strings.TrimSpace(resolved.keyPath) != "" || strings.TrimSpace(resolved.agentSocketPath) != "" {
+		return resolved
+	}
+	if detected := detectDefaultIdentity(); detected != "" {
+		resolved.keyPath = detected
+	}
+	return resolved
+}
+
+// detectDefaultIdentity returns the first standard private key present under
+// ~/.ssh, or an empty string when none exists.
+func detectDefaultIdentity() string {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	sshDir := filepath.Join(homeDir, ".ssh")
+	for _, name := range defaultIdentityNames {
+		candidate := filepath.Join(sshDir, name)
+		if info, statErr := os.Stat(candidate); statErr == nil && !info.IsDir() {
+			return "~/.ssh/" + name
+		}
+	}
+	return ""
 }
 
 func deriveWarnings(resolved resolvedAlias) []string {
@@ -324,9 +368,6 @@ func deriveWarnings(resolved resolvedAlias) []string {
 	}
 	if strings.TrimSpace(resolved.proxyJump) != "" {
 		warnings = append(warnings, "proxy_jump")
-	}
-	if strings.TrimSpace(resolved.keyPath) == "" && strings.TrimSpace(resolved.agentSocketPath) == "" {
-		warnings = append(warnings, "agent_fallback")
 	}
 	return warnings
 }

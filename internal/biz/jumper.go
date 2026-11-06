@@ -239,9 +239,8 @@ func validateJumperPayload(payload model.JumperPayload) error {
 			return fmt.Errorf("password auth requires password")
 		}
 	case "ssh_key":
-		if payload.KeyPath == "" {
-			return fmt.Errorf("ssh_key auth requires keyPath")
-		}
+		// Empty key path is allowed: it means "auto", i.e. try every private
+		// key under ~/.ssh when the connection is established.
 	case "ssh_agent":
 	default:
 		return fmt.Errorf("unsupported authType: %s", payload.AuthType)
