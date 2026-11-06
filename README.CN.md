@@ -8,15 +8,18 @@
 
 在 macOS 和 Windows 上集中管理连接、发布本地服务并监控隧道状态。
 
-<a href="https://apps.microsoft.com/detail/9nsmf69f8kdt">
-  <img src="https://get.microsoft.com/images/en-us%20dark.svg" alt="从 Microsoft Store 获取" width="200">
-</a>
-
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows-blue)
 ![License](https://img.shields.io/badge/license-Apache%202.0-green)
 ![Built with Wails](https://img.shields.io/badge/built%20with-Wails-informational)
 
 </div>
+
+> [!IMPORTANT]
+> **本项目基于原作者 [@DGGua](https://github.com/DGGua) 的 [Loris Tunnel](https://github.com/DGGua/loris-tunnel-app) 进行功能修改和增强。**
+>
+> - 已移除全部授权/Pro 门槛：隧道并发不限量、随系统启动可用、无任何购买提示。
+> - 云备份与 AI 诊断仍运行在原作者的服务器上，服务端可能校验授权。
+> - 遵循原项目的 [Apache License 2.0](LICENSE) 开源。本分支并非 Microsoft Store 版本 —— 如果觉得 Loris Tunnel 好用，请考虑支持原作者。
 
 ## 项目简介
 
@@ -28,7 +31,7 @@ Loris Tunnel 将 SSH 端口转发和本地服务发布集中到一个图形工�
 
 ## 截图
 
-以下截图使用演示数据，并展示 Pro 示例状态，不代表实时连接结果或免费版限制。
+以下截图来自原项目并使用演示数据，可能包含本分支已移除的 Pro 相关界面元素，不代表实时连接结果。
 
 | 隧道管理 | SSH 跳板机 |
 | --- | --- |
@@ -59,7 +62,7 @@ Loris Tunnel 将 SSH 端口转发和本地服务发布集中到一个图形工�
 - **连接恢复** — 自动重连、可选的隧道自动启动；应用开机启动单独配置。
 - **SSH 工具** — 本地、远程和 SOCKS5 转发，多跳跳板机，SSH 命令和 SSH 配置导入，连接测试及 SSH 线路延迟对比。
 - **运行监控** — 连接状态、延迟、流量监控和活动日志；具体指标取决于 Provider。
-- **云备份与恢复** — 有效 Pro 授权可备份配置文件并恢复云端版本；自动备份默认关闭。
+- **云备份与恢复** — 备份配置文件并恢复云端版本（使用原作者的云服务，服务端可能仍校验授权）；自动备份默认关闭。
 - **桌面偏好** — 浅色和深色主题，英文、简体中文、繁体中文（台湾和香港）及俄文界面。
 
 | Provider | 用途 | 前置条件 | 典型场景 |
@@ -73,8 +76,8 @@ Loris Tunnel 将 SSH 端口转发和本地服务发布集中到一个图形工�
 
 ### 下载安装
 
-- **Windows**：通过 [Microsoft Store](https://apps.microsoft.com/detail/9nsmf69f8kdt?hl=en-US&gl=US) 安装，或从 [Releases](../../releases) 下载 `.exe` 安装包。
-- **macOS**：从 [Releases](../../releases) 下载 `.dmg` 安装包。
+- **Windows**：从本分支的 [Releases](../../releases) 下载 `.exe` 安装包。注意 [Microsoft Store](https://apps.microsoft.com/detail/9nsmf69f8kdt?hl=en-US&gl=US) 版本是原作者构建的、仍带 Pro 限制的版本。
+- **macOS**：从本分支的 [Releases](../../releases) 下载 `.dmg` 安装包。
 
 ### 创建第一条隧道
 
@@ -135,12 +138,14 @@ sudo xattr -rd com.apple.quarantine /Applications/loris-tunnel.app
 
 ## 免费版与 Pro
 
-| 能力 | 免费版 | 有效 Pro 授权 |
-| --- | --- | --- |
-| 跨所有 Provider 的同时运行隧道数 | 3 条 | 无应用内并发数量限制 |
-| 云备份与恢复 | 不可用 | 可用 |
+本分支移除了应用的授权门槛，构建中不存在免费版/Pro 区分：
 
-正在启动和重连的隧道也计入并发名额，自动启动同样受限。授权校验失败时，启动隧道按免费版限制处理。Provider 服务配额和服务器容量仍独立生效。可在 **Config** 管理授权。
+| 能力 | 本构建 |
+| --- | --- |
+| 跨所有 Provider 的同时运行隧道数 | 无应用内并发数量限制 |
+| 随系统启动 | 可用 |
+
+Provider 服务配额和服务器容量仍独立生效；云备份与 AI 诊断由远端服务执行，服务端可能仍校验原作者的授权。
 
 ## 配置与备份
 
@@ -231,9 +236,13 @@ wails build
 
 ## 社区交流
 
+原项目社区渠道（上游作者 [@DGGua](https://github.com/DGGua)）：
+
 - **QQ 交流群**：**1009737419**
 - **联系邮箱**：[yang.rangerwolf@gmail.com](mailto:yang.rangerwolf@gmail.com)
 
 ## 开源协议
 
 [Apache License 2.0](LICENSE)。
+
+本分支基于原作者 [@DGGua](https://github.com/DGGua) 的 [Loris Tunnel](https://github.com/DGGua/loris-tunnel-app)。本分支的全部修改与增强同样以该协议发布，感谢原作者的出色工作。

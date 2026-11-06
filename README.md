@@ -8,15 +8,18 @@
 
 Manage connections, expose local services, and monitor tunnels on macOS and Windows.
 
-<a href="https://apps.microsoft.com/detail/9nsmf69f8kdt">
-  <img src="https://get.microsoft.com/images/en-us%20dark.svg" alt="Get it from Microsoft Store" width="200">
-</a>
-
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows-blue)
 ![License](https://img.shields.io/badge/license-Apache%202.0-green)
 ![Built with Wails](https://img.shields.io/badge/built%20with-Wails-informational)
 
 </div>
+
+> [!IMPORTANT]
+> **This is a fork of [Loris Tunnel](https://github.com/DGGua/loris-tunnel-app) by [@DGGua](https://github.com/DGGua), with functional modifications and enhancements.**
+>
+> - All license/Pro gates have been removed: unlimited concurrent tunnels, launch at login available, no purchase prompts.
+> - Cloud backup and AI diagnostics still run on the original author's servers and may enforce licensing on the server side.
+> - Distributed under the original [Apache License 2.0](LICENSE). This fork is not the Microsoft Store release — consider supporting the original author if you find Loris Tunnel useful.
 
 ## Overview
 
@@ -28,7 +31,7 @@ This README describes the current source branch. Published installers may contai
 
 ## Screenshots
 
-These screenshots use demonstration data and show a Pro example state; they do not represent live connections or the free plan's limits.
+These screenshots come from the original project and use demonstration data; they may show Pro-related UI elements that this fork removes, and do not represent live connections.
 
 | Tunnel management | SSH jump hosts |
 | --- | --- |
@@ -59,7 +62,7 @@ See [screenshot documentation](screenshots/README.md) for the existing capture w
 - **Connection recovery** — automatic reconnection and optional tunnel auto-start; launch at login is configured separately.
 - **SSH tools** — local, remote, and SOCKS5 forwarding, multi-hop jump hosts, SSH command and SSH config import, connection testing, and SSH route latency comparison.
 - **Monitoring** — connection status, latency, traffic monitoring, and activity logs, with availability depending on the provider.
-- **Cloud backup and restore** — back up the configuration file and restore cloud versions with an active Pro license; automatic backup is off by default.
+- **Cloud backup and restore** — back up the configuration file and restore cloud versions (uses the original author's cloud service; server-side license checks may still apply); automatic backup is off by default.
 - **Desktop preferences** — light and dark themes; English, Simplified Chinese, Traditional Chinese (Taiwan and Hong Kong), and Russian interfaces.
 
 | Provider | Purpose | Requirements | Typical use |
@@ -73,8 +76,8 @@ See [screenshot documentation](screenshots/README.md) for the existing capture w
 
 ### Download
 
-- **Windows**: [Microsoft Store](https://apps.microsoft.com/detail/9nsmf69f8kdt?hl=en-US&gl=US), or the `.exe` installer from [Releases](../../releases).
-- **macOS**: the `.dmg` installer from [Releases](../../releases).
+- **Windows**: the `.exe` installer from this fork's [Releases](../../releases). The [Microsoft Store](https://apps.microsoft.com/detail/9nsmf69f8kdt?hl=en-US&gl=US) version is the original author's build and still contains the Pro restrictions.
+- **macOS**: the `.dmg` installer from this fork's [Releases](../../releases).
 
 ### First Tunnel
 
@@ -135,12 +138,14 @@ Install the official `frpc` or select a local executable under **Providers → F
 
 ## Free and Pro
 
-| Capability | Free | Active Pro license |
-| --- | --- | --- |
-| Concurrent tunnels, across all providers | 3 | No application-imposed concurrency limit |
-| Cloud backup and restore | Unavailable | Available |
+This fork removes the application's license gates. There is no Free/Pro distinction in this build:
 
-Starting and reconnecting tunnels count toward the concurrent limit, including automatic starts. If license verification fails, tunnel starts use the free limit. Provider service quotas and server capacity still apply independently. Manage the license under **Config**.
+| Capability | This build |
+| --- | --- |
+| Concurrent tunnels, across all providers | No application-imposed concurrency limit |
+| Launch at login | Available |
+
+Provider service quotas and server capacity still apply independently; cloud backup and AI diagnostics are enforced by the remote service and may still require the original author's license on the server side.
 
 ## Configuration and Backup
 
@@ -231,9 +236,13 @@ wails build
 
 ## Community
 
+Original project channels (upstream author [@DGGua](https://github.com/DGGua)):
+
 - **QQ group**: **1009737419**
 - **Email**: [yang.rangerwolf@gmail.com](mailto:yang.rangerwolf@gmail.com)
 
 ## License
 
 [Apache License 2.0](LICENSE).
+
+This fork is based on [Loris Tunnel](https://github.com/DGGua/loris-tunnel-app) by [@DGGua](https://github.com/DGGua). All modifications and enhancements in this fork are released under the same license. Thanks to the original author for the excellent work.
